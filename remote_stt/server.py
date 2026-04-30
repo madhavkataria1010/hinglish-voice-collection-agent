@@ -52,6 +52,13 @@ async def transcribe(request: Request) -> JSONResponse:
     if language == "":
         language = None
 
+    # initial_prompt is a soft vocabulary bias the decoder conditions on.
+    # Used to make proper nouns / domain terms more likely to be transcribed
+    # correctly. The client passes name + key collections vocabulary on
+    # every request, so "Madhav" stops being heard as "वादव" and rupee/
+    # settlement words come through cleanly.
+    initial_prompt = request.query_params.get("initial_prompt") or None
+
     try:
         with wave.open(io.BytesIO(body), "rb") as wf:
             sr = wf.getframerate()
@@ -77,6 +84,7 @@ async def transcribe(request: Request) -> JSONResponse:
         best_of=1,
         temperature=0.0,
         condition_on_previous_text=False,
+        initial_prompt=initial_prompt,
         vad_filter=False,
         without_timestamps=True,
         word_timestamps=False,

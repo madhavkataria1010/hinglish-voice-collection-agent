@@ -300,28 +300,34 @@ def normalize(text: str) -> tuple[str, list[int]]:
 def render_amount(amount_inr: int, lang: str = "en") -> str:
     """
     Render a canonical integer back to a spoken form for TTS.
-    For ``lang='hi'`` use Indian numbering (lakh/hazaar). For ``en`` use
-    Indian-English ("fifty thousand rupees"). For ``mixed`` default to en
-    style — Sarvam Bulbul handles either pronunciation gracefully.
+    For ``lang='hi'`` use Indian numbering (lakh/hazaar) in Devanagari script
+    so the string sits cleanly inside a Hindi sentence and reads correctly.
+    For ``en`` use Indian-English ("fifty thousand rupees"). For ``mixed``
+    default to en style — Sarvam Bulbul handles either pronunciation
+    gracefully.
     """
     if amount_inr <= 0:
-        return "zero rupees"
+        return "zero rupees" if lang != "hi" else "शून्य रुपये"
 
     if lang == "hi":
-        # Indian system: crore / lakh / hazaar
+        # Indian system in Devanagari: करोड़ / लाख / हज़ार / रुपये.
+        # We keep the *number* in Latin digits because (a) Sarvam
+        # Bulbul-v2 pronounces them perfectly in Hindi context, and
+        # (b) it avoids the visual ugliness of "87 hazaar 500 rupaye"
+        # (Latin-mixed-into-Devanagari) that the user pointed out.
         crore, rem = divmod(amount_inr, 10_000_000)
         lakh, rem = divmod(rem, 100_000)
         hazaar, rem = divmod(rem, 1_000)
         parts: list[str] = []
         if crore:
-            parts.append(f"{crore} crore")
+            parts.append(f"{crore} करोड़")
         if lakh:
-            parts.append(f"{lakh} lakh")
+            parts.append(f"{lakh} लाख")
         if hazaar:
-            parts.append(f"{hazaar} hazaar")
+            parts.append(f"{hazaar} हज़ार")
         if rem:
             parts.append(str(rem))
-        return " ".join(parts) + " rupaye"
+        return " ".join(parts) + " रुपये"
 
     # English (Indian-English with lakh/crore for >=1L for naturalness)
     if amount_inr >= 10_000_000:

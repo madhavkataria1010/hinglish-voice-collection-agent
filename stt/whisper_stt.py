@@ -182,7 +182,13 @@ class RemoteWhisperEngine:
     the local engine.
     """
 
-    def __init__(self, url: str, language: str | None = None, timeout_s: float = 30.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        language: str | None = None,
+        timeout_s: float = 30.0,
+        initial_prompt: str | None = None,
+    ) -> None:
         import httpx
 
         self.url = url.rstrip("/")
@@ -191,11 +197,25 @@ class RemoteWhisperEngine:
             env_lang = os.getenv("WHISPER_LANGUAGE", "hi").strip()
             language = env_lang or None
         self.language = language
+        # Soft vocabulary bias: passed to Whisper's decoder to make proper
+        # nouns and domain words more likely. Without this, names like
+        # "Madhav" came back as "वादव" because Hindi-mode Whisper has no
+        # acoustic pull toward English proper nouns.
+        if initial_prompt is None:
+            initial_prompt = os.getenv("WHISPER_INITIAL_PROMPT") or None
+        self.initial_prompt = initial_prompt
         self._http = httpx.Client(timeout=timeout_s)
-        logger.info(f"RemoteWhisperEngine -> {self.url} (lang={self.language!r})")
+        logger.info(
+            f"RemoteWhisperEngine -> {self.url} "
+            f"(lang={self.language!r}, prompt={'set' if initial_prompt else 'none'})"
+        )
 
     def transcribe_wav_bytes(self, wav: bytes) -> WhisperResult:
-        params = {"language": self.language} if self.language else {}
+        params: dict[str, str] = {}
+        if self.language:
+            params["language"] = self.language
+        if self.initial_prompt:
+            params["initial_prompt"] = self.initial_prompt
         t0 = time.time()
         resp = self._http.post(
             f"{self.url}/transcribe",
@@ -323,9 +343,25 @@ if PIPECAT_AVAILABLE:
             super().__init__(**kwargs)
             if engine is None:
                 backend = os.getenv("WHISPER_BACKEND", "local").lower()
+                # Build a default initial_prompt that biases the decoder
+                # toward the borrower's name + collections vocabulary. This
+                # is what stops "Madhav" being heard as "वादव" / "बादब".
+                # We bias both English (the actual name) and a Devanagari
+                # rendering, plus rupee/settlement words. Sticking strictly
+                # to vocabulary the user is likely to say keeps the prompt
+                # short — long prompts hurt latency.
+                borrower_name = os.getenv("BORROWER_NAME", "").strip()
+                default_prompt_parts = [
+                    p for p in [
+                        borrower_name,
+                        "HDFC Bank, Priya, settlement, payment, loan, EMI, "
+                        "rupees, hazaar, lakh, UPI, account, balance.",
+                    ] if p
+                ]
+                default_prompt = " ".join(default_prompt_parts) if default_prompt_parts else None
                 if backend == "remote":
                     url = os.getenv("WHISPER_REMOTE_URL", "http://localhost:8765")
-                    engine = RemoteWhisperEngine(url=url)
+                    engine = RemoteWhisperEngine(url=url, initial_prompt=default_prompt)
                 else:
                     engine = FasterWhisperEngine.shared()
             self._engine = engine

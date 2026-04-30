@@ -1,0 +1,34 @@
+{"audio": "clip_001.wav", "transcript": "Hello, this is regarding my loan.", "language": "en", "amounts_inr": [], "category": "en_only", "duration_s": 1.89}
+{"audio": "clip_002.wav", "transcript": "I cannot pay the full amount right now.", "language": "en", "amounts_inr": [], "category": "en_only", "duration_s": 2.02}
+{"audio": "clip_003.wav", "transcript": "Please tell me the settlement option.", "language": "en", "amounts_inr": [], "category": "en_only", "duration_s": 1.87}
+{"audio": "clip_004.wav", "transcript": "I lost my job last month.", "language": "en", "amounts_inr": [], "category": "en_only", "duration_s": 1.64}
+{"audio": "clip_005.wav", "transcript": "Can you give me one week to arrange?", "language": "en", "amounts_inr": [], "category": "en_only", "duration_s": 1.88}
+{"audio": "clip_006.wav", "transcript": "I am willing to settle this today.", "language": "en", "amounts_inr": [], "category": "en_only", "duration_s": 1.85}
+{"audio": "clip_007.wav", "transcript": "main abhi paise nahi de sakta", "language": "hi", "amounts_inr": [], "category": "hi_only", "duration_s": 1.42}
+{"audio": "clip_008.wav", "transcript": "mujhe thoda time chahiye", "language": "hi", "amounts_inr": [], "category": "hi_only", "duration_s": 1.28}
+{"audio": "clip_009.wav", "transcript": "aap kya offer kar rahe ho", "language": "hi", "amounts_inr": [], "category": "hi_only", "duration_s": 1.16}
+{"audio": "clip_010.wav", "transcript": "ghar mein paisa nahi hai bhai", "language": "hi", "amounts_inr": [], "category": "hi_only", "duration_s": 1.27}
+{"audio": "clip_011.wav", "transcript": "kya main agle mahine de sakta hoon", "language": "hi", "amounts_inr": [], "category": "hi_only", "duration_s": 1.61}
+{"audio": "clip_012.wav", "transcript": "haan main settlement ke liye ready hoon", "language": "mixed", "amounts_inr": [], "category": "code_switch", "duration_s": 1.61}
+{"audio": "clip_013.wav", "transcript": "please thoda samay dijiye", "language": "mixed", "amounts_inr": [], "category": "code_switch", "duration_s": 1.3}
+{"audio": "clip_014.wav", "transcript": "I will try but mujhe time lagega", "language": "mixed", "amounts_inr": [], "category": "code_switch", "duration_s": 1.72}
+{"audio": "clip_015.wav", "transcript": "okay madam batao kitna dena hai", "language": "mixed", "amounts_inr": [], "category": "code_switch", "duration_s": 1.61}
+{"audio": "clip_016.wav", "transcript": "EMI miss ho gayi sorry", "language": "mixed", "amounts_inr": [], "category": "code_switch", "duration_s": 1.27}
+{"audio": "clip_017.wav", "transcript": "I can pay pachas thousand rupees", "language": "mixed", "amounts_inr": [50000], "category": "code_switch_amount", "duration_s": 1.6}
+{"audio": "clip_018.wav", "transcript": "main pachas thousand de sakta hoon", "language": "mixed", "amounts_inr": [50000], "category": "code_switch_amount", "duration_s": 1.61}
+{"audio": "clip_019.wav", "transcript": "settle for thirty five thousand please", "language": "en", "amounts_inr": [35000], "category": "code_switch_amount", "duration_s": 1.87}
+{"audio": "clip_020.wav", "transcript": "paintees hazaar mein settle kar lo", "language": "hi", "amounts_inr": [35000], "category": "code_switch_amount", "duration_s": 1.52}
+{"audio": "clip_021.wav", "transcript": "twenty five thousand abhi aur baaki next month", "language": "mixed", "amounts_inr": [25000], "category": "code_switch_amount", "duration_s": 2.35}
+{"audio": "clip_022.wav", "transcript": "ek lakh bahut zyada hai forty thousand chalega", "language": "mixed", "amounts_inr": [100000, 40000], "category": "code_switch_amount", "duration_s": 2.39}
+{"audio": "clip_023.wav", "transcript": "I will pay 50k today", "language": "en", "amounts_inr": [50000], "category": "code_switch_amount", "duration_s": 1.45}
+{"audio": "clip_024.wav", "transcript": "chalis hazaar final hai sir", "language": "hi", "amounts_inr": [40000], "category": "code_switch_amount", "duration_s": 1.43}
+{"audio": "clip_025.wav", "transcript": "thirty thousand please that's all I have", "language": "en", "amounts_inr": [30000], "category": "code_switch_amount", "duration_s": 1.8}
+{"audio": "clip_026.wav", "transcript": "tees hazaar de dunga abhi", "language": "hi", "amounts_inr": [30000], "category": "code_switch_amount", "duration_s": 1.29}
+{"audio": "clip_027.wav", "transcript": "haan", "language": "filler", "amounts_inr": [], "category": "filler_only", "duration_s": 0.24}
+{"audio": "clip_028.wav", "transcript": "hmm", "language": "filler", "amounts_inr": [], "category": "filler_only", "duration_s": 0.22}
+{"audio": "clip_029.wav", "transcript": "achha", "language": "filler", "amounts_inr": [], "category": "filler_only", "duration_s": 0.33}
+{"audio": "clip_030.wav", "transcript": "okay", "language": "filler", "amounts_inr": [], "category": "filler_only", "duration_s": 0.24}
+{"audio": "clip_031.wav", "transcript": "yes", "language": "filler", "amounts_inr": [], "category": "filler_only", "duration_s": 0.22}
+{"audio": "clip_032.wav", "transcript": "ji", "language": "filler", "amounts_inr": [], "category": "filler_only", "duration_s": 0.16}
+{"audio": "clip_033.wav", "transcript": "", "language": "noise", "amounts_inr": [], "category": "noise", "duration_s": 0.5}
+{"audio": "clip_034.wav", "transcript": "", "language": "noise", "amounts_inr": [], "category": "noise", "duration_s": 0.5}

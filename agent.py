@@ -42,6 +42,47 @@ warnings.filterwarnings(
 )
 
 
+# --------------------------------------------------------------------------- #
+# Upstream patch: RTVIObserver bot-transcription leak across turns
+# --------------------------------------------------------------------------- #
+# Pipecat's RTVIObserver._handle_llm_text_frame accumulates LLMTextFrame text
+# in self._bot_transcription and only resets it when match_endofsentence
+# fires inside the buffer (see processors/frameworks/rtvi/observer.py:530-544
+# — note the TODO from the maintainers about deprecating this path).
+#
+# It does NOT reset on LLMFullResponseStartFrame / LLMFullResponseEndFrame.
+# So if a turn's last LLM chunk leaves any residual fragment in the buffer
+# (e.g. trailing whitespace from our placeholder flush, or an incomplete
+# sentence the LLM ended on), that residual gets *prepended* to the next
+# turn's transcription. The visible symptom in the prebuilt UI is that
+# every assistant message starts with the last sentence of the previous one.
+#
+# We monkey-patch on_push_frame to reset the buffer at LLM-response start.
+# The reset happens *before* the original implementation runs, so the
+# BotLLMStartedMessage RTVI event still fires normally.
+def _patch_rtvi_observer_reset_on_llm_start() -> None:
+    from pipecat.frames.frames import LLMFullResponseStartFrame
+    from pipecat.processors.frameworks.rtvi.observer import RTVIObserver
+
+    if getattr(RTVIObserver, "_madhav_reset_patch_applied", False):
+        return
+
+    _orig = RTVIObserver.on_push_frame
+
+    async def _patched(self: Any, data: Any) -> Any:
+        if isinstance(data.frame, LLMFullResponseStartFrame):
+            # Drop any residual text from the previous response; without
+            # this the next turn's transcription is prefixed by the leak.
+            self._bot_transcription = ""
+        return await _orig(self, data)
+
+    RTVIObserver.on_push_frame = _patched
+    RTVIObserver._madhav_reset_patch_applied = True
+
+
+_patch_rtvi_observer_reset_on_llm_start()
+
+
 # Defer pipecat imports so unit tests of nlp/* work without pipecat installed.
 def _import_pipecat() -> dict[str, Any]:
     from pipecat.audio.vad.silero import SileroVADAnalyzer
