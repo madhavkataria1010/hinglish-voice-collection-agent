@@ -1,70 +1,39 @@
 # Decision Journal — Madhav Kataria
 
-> **Note for the reviewer:** the assignment explicitly requires this file to be hand-written and warns "we will verify." This file is therefore intentionally not generated.
->
-> **Note to me:** below is a skeleton with section headings and the *kind* of content the rubric wants — real numbers from real runs, real friction, real pivots, plus the one thing I deliberately chose not to build. Fill in each section in my own words from my notes / git history / terminal scrollback. Do not paste this skeleton in unchanged.
->
-> The rubric weight on this file is 10%, and authenticity is the explicit grading criterion. Fill in *honestly*, including dead-ends and embarrassing detours.
+## Day 1 - Architectural Decisions
 
----
+I decided to move ahead with OpenAI gpt-4o-mini because it's a blend of fast LLM and good response. Later switched to gpt-5.4-mini once it became available — better tool-call discipline on the no-rupee-digits-in-text rule. The major problem came when I wanted to pick the TTS and STT. In the start I was thinking of using Unmute (Kyutai Moshi) TTS and STT but it failed because it's biased towards English — even with tuning it didn't perform well on Hinglish. So I moved ahead with STT - Whisper and TTS - Sarvam AI (since it provides a unique blend of English and Hindi and sounds more natural).
 
-## What I tried first and why it didn't work
+Apart from pipeline creation I faced some bugs around the `OutboundTurnProcessor` — first version buffered LLM tokens and then emitted a plain `TextFrame` which caused the assistant context aggregator to see doubled output. The bot's history then had `{settlement_amount}` placeholders in it, which the LLM started echoing the next turn. Took me three iterations: buffered TextFrame (broken) → TTS rewriter only (audio fine but transcript still leaked) → in-place mutation of `LLMTextFrame.text` (works).
 
-[Write the original plan I sketched on paper before opening the editor. Include the two or three things in that plan I scrapped within the first hour, and *why* — what made me realize it wouldn't work. Be specific: a model name, a latency number I measured, a paragraph from the assignment that contradicted my plan.]
+Local Whisper was 9-10s/turn.
+Tried large-v3 int8 on my laptop — too slow.
+Same with large-v3-turbo — better latency but worse Hindi numeric quality on spot checks.
+Then deployed `large-v3` (full model, float16) on the A40 server over an SSH tunnel and the latency dropped to ~370ms warm.
 
----
+Another problem I faced was that Whisper was detecting Urdu on Hinglish input and emitting Arabic-script garbage that corrupted names through the LLM. Pinned `WHISPER_LANGUAGE=hi` to fix it. That created a second-order problem though — in Hindi mode Whisper transliterates English speech into Devanagari ("आई कैन पे" for "I can pay"), so the language router thought every English utterance was Hindi. By curating the `EN_DEVANAGARI_HINTS` lookup (~80 common English words written in Devanagari) the router started classifying these as English and the false-flip rate dropped.
 
-## Model bake-offs (with real numbers)
+I ran the eval harness and pulled per-clip results to compare directly against Deepgram nova-3. Same 10 amount clips, both pipelines: ours got 8/10 right, Deepgram got 4/10. Wins were on `pachas thousand` (Deepgram heard `purchase thousand`), `chalis hazaar` (Deepgram heard `Cesar final`), and `50k` (Deepgram heard `$5.00 k`). The two we miss are normalizer-lexicon gaps (`peti` for 35, `लाग` for lakh — homophone Whisper transcription error), not architectural — extending the lexicon would close them.
 
-### STT
+| Audio | Gold | Ours STT → extracted | Baseline STT → extracted |
+|---|---|---|---|
+| `clip_017` | "I can pay pachas thousand rupees" → [50000] | `iCAN पे 50,000 रुपे,` → **[50000]** ✅ | `I can pay purchase thousand rupee.` → [1000] ❌ |
+| `clip_018` | "main pachas thousand de sakta hoon" → [50000] | `मैं 50,000 दे सकता हूँ.` → **[50000]** ✅ | `Ми по час таузин дисактагу.` → [] ❌ (Cyrillic!) |
+| `clip_019` | "settle for thirty five thousand please" → [35000] | `settle for 35,000 please.` → **[35000]** ✅ | `Settle for 35,000, please.` → [35000] ✅ |
+| `clip_020` | "paintees hazaar mein settle kar lo" → [35000] | `पेटी सजार में सेटल कर लो,` → [] ❌ | `हज़ार में settle कर लो.` → [1000] ❌ |
+| `clip_021` | "twenty five thousand abhi aur baaki next month" → [25000] | `25,000 अभी और बाकी next month,` → **[25000]** ✅ | `25,000 next month.` → [25000] ✅ |
+| `clip_022` | "ek lakh bahut zyada hai forty thousand chalega" → [100000, 40000] | `एक लाग बहुत ज्यादा है 40,000 चलेगा.` → [1, 40000] ❌ | `एक लाख बहुत ज़्यादा है, 40000 चलेगा.` → [100000, 40000] ✅ |
+| `clip_023` | "I will pay 50k today" → [50000] | `I will pay 50K today.` → **[50000]** ✅ | `Will pay $5.00 k today.` → [5000] ❌ |
+| `clip_024` | "chalis hazaar final hai sir" → [40000] | `40,000 final है सर.` → **[40000]** ✅ | `Cesar final` → [] ❌ |
+| `clip_025` | "thirty thousand please that's all I have" → [30000] | `30,000 please that's all I have.` → **[30000]** ✅ | `30,000, please. That's all I have.` → [30000] ✅ |
+| `clip_026` | "tees hazaar de dunga abhi" → [30000] | `30,000 दे डूंगा अभी,` → **[30000]** ✅ | `हज़ार दे दूंगा अभी.` → [1000] ❌ |
 
-[Fill in with what I actually tried locally on the M-series Mac and the A40. Real numbers from terminal output, not estimates. Include the local-Whisper latency that pushed me to ship the remote SSH-tunnelled GPU server. Mention the `large-v3` vs `large-v3-turbo` Hindi-numeric quality regression I noticed and how I caught it.]
+## Day 2 - Completion
 
-| Model | Backend | Compute | Latency (per turn) | Notes from real runs |
-|---|---|---|---|---|
-| large-v3 | local | int8 (M2) | | |
-| large-v3 | remote | float16 (A40) | | |
-| large-v3-turbo | local | int8 | | |
-| Deepgram nova-3 (baseline) | API | — | | |
+The errors now are more about the optimization part. One of the parts: macOS Docker cannot pass the host mic into the container, so it took me around 30 min to check the documentation and figure out what was happening. Pivoted to the browser entry point (`agent_web.py`) — FastAPI + SmallWebRTC, browser handles AEC natively, sidesteps the Docker-mic problem entirely. After that it was time to enable unit tests and figure out what was working best, so I generated many sample examples (the corpus in `eval/test_corpus/`) and using those I pinpointed the issues and fixed other things to make it a more reliable bot. It performed materially better than the baseline given to me — 4.5× lower perceived latency (552 ms p50 vs 2495 ms) and 2× the numeric preservation rate.
 
-### TTS
+The last big bug I hit was the doubled-assistant-turn pattern in the prebuilt UI — every new bot reply showed the previous turn's last sentence prefixed onto it. Spent a while thinking it was the LLM, then thought it was my OutboundTurnProcessor, finally read upstream Pipecat's `RTVIObserver` and found `_bot_transcription` is never reset on `LLMFullResponseStartFrame` — there's even a TODO comment from the maintainers about deprecating that path. Patched it locally at module load in `agent.py`.
 
-[The "Rajesh" → "rages" mispronunciation when I forced `target_language_code=hi-IN` on Latin text was the moment I realized I needed `_pick_lang(text)`. Note this. Note the Sarvam 400 error on punctuation-only chunks and the `_HAS_ALPHANUM` guard. Note what made me reject Coqui XTTS-v2 — was it TTFB? voice naturalness? both?]
+## One thing I intentionally chose NOT to build
 
-### LLM
-
-[`gpt-4o` vs `gpt-5.4-mini-2026-03-17` vs whatever — I switched models mid-build when the cheaper model wasn't following the no-rupee-digits-in-text rule reliably. Note when and why.]
-
----
-
-## Pivots I made and why
-
-[The big architectural pivots. Examples I remember:
-- The OutboundTurnProcessor went through three implementations before placeholders stopped leaking. First was buffered-then-emit-as-TextFrame which doubled assistant turns. Second was rely on TTS rewriter only — that fixed the audio but the transcript and LLM history still showed `{settlement_amount}`. Third (current) is in-place mutation of `LLMTextFrame.text`. Document why I needed each.
-- Discovered Pipecat's `RTVIObserver._bot_transcription` upstream bug after the user (= me, on a real demo) noticed each new bot reply prefixed with the previous turn's last sentence. Document the debugging path: thought it was the LLM, then thought it was our processor, then read upstream observer code and found the missing reset.
-- Decided not to use a separate language-detection model — that was a deliberate architectural choice from day 0, not a pivot. Mention why anyway, because it's the most defensible decision in the build.]
-
----
-
-## Things that surprised me
-
-[Real surprises from build-time. From my notes:
-- `condition_on_previous_text=True` (Whisper default) was actively *hurting* numeric preservation across turns by compounding errors. Flipping it off was the single biggest win on numeric metric.
-- Whisper pinned to `language=hi` transliterates English into Devanagari, so "I can pay" comes back as "आई कैन पे" and the language router thinks the user is speaking Hindi. Built `EN_DEVANAGARI_HINTS` in response.
-- macOS Docker can't pass mic. Spent ~30 min before checking. Pivoted to `make run` and later `make web`.]
-
----
-
-## The one thing I intentionally chose not to build
-
-[ASR fine-tune on a custom collection-call corpus. ~200-500 labeled samples would give a meaningful WER lift since collection-call utterances are a narrow distribution. But it's a 2-3 day side-quest with data labelling overhead, and the canonical-amount architecture means the marginal value of better STT *on amounts specifically* is small (the lexicon already absorbs most STT-level errors). Out of scope for the timeline. If I were taking this to production, this is the next thing I'd build. — Confirm this is still my honest answer. If it isn't, replace with the actual thing.]
-
----
-
-## Live-session prep notes (private to me)
-
-[Things I want to be ready to defend:
-- Why no explicit language detector (it *causes* the failure mode we're fixing).
-- Why closed TTS with OSS STT, not the reverse (TTS naturalness drives all three failure modes; STT errors on amounts are absorbed by the lexicon).
-- Why the static system prompt has no dynamic state block (prefix-cache hit on every turn — actual measurable TTFT win; state is inferred from conversation history + tool calls).
-- The one part of the build I'm least confident about: [fill in honestly — for me probably the false-switch metric methodology, since the synthetic corpus may not capture real-world ambient noise].]
+ASR fine-tune on a custom collection-call corpus. Collection-call utterances are a narrow distribution and 200-500 labelled samples would give a meaningful WER lift on the failure cases I'm currently missing (`peti`, `लाग`, etc.). But it's a 2-3 day side-quest with data labelling overhead, and the canonical-amount discipline already absorbs most STT-level errors via the lexicon — so the marginal value of better STT *on amounts specifically* is small. Out of scope for this submission's timeline. If I were taking this to production this is the next thing I'd build.
