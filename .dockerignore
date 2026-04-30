@@ -1,0 +1,49 @@
+# Keep the Docker build context small. Build context is the repo root
+# (per docker/docker-compose.yml: `context: ..`), so this file lives here.
+
+# Python build artefacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Secrets — never bake into an image
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.git/
+.gitattributes
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# Claude Code session data
+.claude/
+
+# Models and weights — too large, downloaded at runtime
+models/
+*.ckpt
+*.pt
+*.bin
+
+# Demo artefacts (large WAV/MP4) — not needed inside the agent container
+demo/*.wav
+demo/*.mp4
+
+# Eval artefacts — regenerated with `make eval`
+eval/test_corpus/*.wav
+eval/results/
+
+# LaTeX build artefacts
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc

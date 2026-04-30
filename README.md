@@ -58,7 +58,7 @@ State (`ConversationState`) holds the canonical settlement amount as an integer.
 ## Quickstart
 
 ```bash
-git clone <this repo>
+git clone https://github.com/madhavkataria1010/hinglish-voice-collection-agent
 cd hinglish-voice-collection-agent
 cp .env.example .env          # fill in API keys (see below)
 uv sync
@@ -90,13 +90,24 @@ make tunnel       # remote STT (skip if WHISPER_BACKEND=local)
 make run          # talks straight into the laptop mic
 ```
 
-**3. Docker (Linux desktops with PulseAudio):**
+**3. Docker (single command — works anywhere a browser can reach the host):**
 ```bash
 make docker-build
 make docker-run
+# open http://localhost:7860/ in Chrome
 ```
 
-> **macOS Docker caveat:** Docker Desktop on macOS cannot pass the host microphone into the container reliably. On a Mac, use `make web` or `make run`. The compose file is for Linux.
+The default `docker compose up` builds the web entry point — no mic
+passthrough required, browser handles audio I/O. For the `LocalAudioTransport`
+path on a Linux desktop with PulseAudio:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile mic up agent-mic
+```
+
+> **macOS Docker caveat:** Docker Desktop on macOS cannot pass the host
+> microphone into the container reliably. The default web service avoids
+> this entirely; use `make web` for the host-Python path if you prefer.
 
 ### STT backend choices
 
@@ -161,10 +172,13 @@ Methodology and caveats are in `eval/metrics.py` (each metric has a top-of-file 
 │   ├── baseline_pipeline.py       # Deepgram + OpenAI-TTS reference pipeline
 │   ├── metrics.py                 # the four target metrics + methodology
 │   └── run_eval.py                # `make eval` entrypoint
-├── docker/                        # Dockerfile + docker-compose.yml (Linux audio passthrough)
-├── demo/                          # ≥90s recorded demo (recorded manually)
-├── ARCHITECTURE.md                # 1-2 page writeup
-└── DECISION_JOURNAL.md            # handwritten friction log
+├── docker/                        # Dockerfile + docker-compose.yml (default = web; Linux mic via --profile mic)
+├── demo/                          # ≥90s recorded demo (recorded manually; not checked in)
+├── report/
+│   ├── report.tex                 # LaTeX writeup (architecture + measurement)
+│   └── report.pdf                 # compiled PDF (committed for reviewers)
+├── ARCHITECTURE.md                # markdown architecture writeup
+└── DECISION_JOURNAL.md            # handwritten friction log (assignment requires hand-written)
 ```
 
 ## Tests
@@ -181,6 +195,28 @@ make test-normalizer   # 20+ numeric cases must pass
 - **Whisper occasionally mishears proper nouns** in Hindi mode (e.g. "Madhav" → "वादव"). Mitigated by `WHISPER_INITIAL_PROMPT` (the borrower name + collections vocabulary is auto-injected via `BORROWER_NAME` in `.env`); a domain-fine-tune would do better but is out of scope for this submission.
 - **Pipecat's `RTVIObserver` has an upstream bug** (the `_bot_transcription` buffer never resets at LLM-turn boundaries). Locally patched at module load in `agent.py`; without the patch each browser-UI turn shows the previous turn's tail prefixed onto the next message.
 
+## Submission deliverables
+
+Mapped to the assignment's submission checklist:
+
+| Required | Where |
+|---|---|
+| Public GitHub repo with detailed README | this repo + this file |
+| Docker Compose setup, single command | `docker/docker-compose.yml` → `make docker-run` |
+| Recorded demo (≥90 s, ≥3 code switches, ≥1 mid-number) | `demo/recording.wav` (uploaded with submission) |
+| Measurement report with raw data | `eval/report.md` + `eval/results/{ours,baseline}.jsonl` |
+| Architecture writeup (1–2 pages) | `ARCHITECTURE.md` (markdown) and `report/report.pdf` (LaTeX, Part I) |
+| Decision journal (must be handwritten) | `DECISION_JOURNAL.md` |
+
+Reproduce the eval report from a fresh checkout:
+```bash
+cp .env.example .env                  # fill keys
+uv sync
+make tunnel                           # SSH tunnel to remote-STT GPU server (skip if WHISPER_BACKEND=local)
+uv run python -m eval.synth_corpus    # synthesize the 34-clip corpus
+make eval                             # writes eval/report.md + raw JSONL
+```
+
 ## License
 
-MIT — see `LICENSE`.
+MIT — see `LICENSE`. © 2026 Madhav Kataria.

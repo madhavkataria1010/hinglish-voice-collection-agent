@@ -1,8 +1,21 @@
 [project]
 name = "hinglish-collection-agent"
 version = "0.1.0"
-description = "Real-time Hinglish voice agent for post-default debt collection."
+description = "Real-time Hinglish voice agent for post-default debt collection (Riverline hiring assignment)."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Madhav Kataria", email = "b23ch1025@iitj.ac.in" },
+]
 requires-python = ">=3.11,<3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "pipecat-ai[local,openai,runner,silero,webrtc]>=0.0.47",
     "faster-whisper>=1.0.3",
@@ -25,6 +38,9 @@ eval = [
     "matplotlib>=3.9.0",
     "pandas>=2.2.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/madhavkataria1010/hinglish-voice-collection-agent"
 
 [build-system]
 requires = ["hatchling"]

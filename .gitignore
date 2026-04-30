@@ -30,6 +30,9 @@ build/
 
 # Build artefacts
 demo/recording.wav
+demo/*.mp4
+demo/*.mov
+demo/*.m4a
 
 # eval/report.md and eval/results/*.jsonl ARE committed — they are
 # deliverables ("measurement report with raw data"). Regenerate with
