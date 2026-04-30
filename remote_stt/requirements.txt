@@ -1,0 +1,6 @@
+faster-whisper>=1.2.0
+fastapi>=0.115
+uvicorn[standard]>=0.30
+numpy>=1.26
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

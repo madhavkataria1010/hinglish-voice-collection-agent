@@ -1,0 +1,43 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment — NEVER commit real keys
+.env
+.env.local
+.env.*.local
+
+# Claude Code session data
+.claude/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artefacts
+eval/results/
+eval/report.md
+demo/recording.wav
+
+# Model weights (large binaries)
+*.ckpt
+*.pt
+*.bin
+models/
+
+# uv — lock file IS committed (reproducible installs)
+# uv.lock  ← intentionally not ignored
