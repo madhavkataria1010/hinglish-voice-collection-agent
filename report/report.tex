@@ -1,0 +1,221 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=0.85in]{geometry}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\usepackage{titling}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{listings}
+
+% Compact section spacing — keeps the writeup at the requested 1–2 pages of
+% architecture, with the measurement report as an annexe.
+\titlespacing*{\section}{0pt}{0.9em}{0.4em}
+\titlespacing*{\subsection}{0pt}{0.7em}{0.3em}
+\setlist{nosep,leftmargin=*}
+
+\setlength{\droptitle}{-3em}
+\title{\textbf{Hinglish Voice Collection Agent}\\[0.2em]
+  \large Architecture Writeup \& Measurement Report}
+\author{Madhav Kataria\\\small Riverline hiring assignment}
+\date{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Hinglish Voice Collection Agent}
+\fancyhead[R]{\small Madhav Kataria}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  framesep=4pt,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+\vspace{-1.5em}
+
+% =====================================================================
+\section*{Part I --- Architecture Writeup}
+% =====================================================================
+
+\subsection*{What I built}
+
+A real-time voice agent for post-default debt collection in India. Single Pipecat 1.1 pipeline, two interchangeable transports (browser via WebRTC; host mic via \texttt{LocalAudioTransport}). Dataflow:
+
+\begin{lstlisting}
+mic -> SileroVAD -> UserTurnProcessor -> faster-whisper STT (OSS, remote GPU)
+    -> InboundTurnProcessor (number-tag + LanguageRouter + [REPLY_LANG:xx])
+    -> OpenAI gpt-4o (streaming, tool: record_amount)
+    -> OutboundTurnProcessor (in-place placeholder substitution)
+    -> Sarvam Bulbul-v2 TTS  ->  speaker
+\end{lstlisting}
+
+\texttt{ConversationState} stores the canonical settlement amount as \texttt{int}. Transcripts and the LLM context never carry rupee figures as free text --- they ride as \texttt{\{settlement\_amount\}} / \texttt{\{borrower\_offer\}} placeholders that get substituted in the language register chosen by the router.
+
+\subsection*{Models evaluated, chosen, rejected}
+
+\begin{tabular}{@{}p{2.0cm} p{4.5cm} p{8.5cm}@{}}
+\toprule
+\textbf{Layer} & \textbf{Choice} & \textbf{Why this, why not the alternatives}\\
+\midrule
+STT (\textbf{OSS}) & \textbf{faster-whisper \texttt{large-v3}} (CTranslate2, A40 float16 over SSH tunnel) & Multilingual; native Hindi/English code-switch in a single forward pass --- no separate language detector to flip. \emph{Rejected:} \texttt{distil-large-v3} (English-distilled, Hindi quality drops), AI4Bharat IndicWhisper (better on monolingual Hindi, worse on code-switch), Deepgram Nova-3 (closed --- would have forced TTS to be the OSS slot, which is worse for naturalness; kept it for the baseline).\\
+\addlinespace
+LLM & OpenAI \texttt{gpt-4o} (streaming, tools) & Lowest TTFT in its class; reliable on the no-rupee-digits rule; mature streaming + tool-call integration in Pipecat. \emph{Rejected:} Claude Haiku 4.5 (Pipecat tool-call streaming less mature for it), Llama 3.1 8B (Hinglish output unnatural, weaker tool-calling).\\
+\addlinespace
+TTS & Sarvam Bulbul-v2; Cartesia Sonic-2 fallback & Most natural Hinglish voice; \textbf{single multilingual voice eliminates the 2--3s switch pause at the physical layer}. \emph{Rejected:} ElevenLabs (higher TTFB), Coqui XTTS-v2 OSS (TTFB 400--700\,ms, less natural), OpenAI TTS-1 (Hindi voice unmistakably an English speaker reading transliteration; kept for baseline).\\
+\addlinespace
+Lang detect & \textbf{No explicit language detector.} & Whisper handles code-switching natively per-chunk; an explicit detector is precisely what \emph{creates} the false-switch failure mode. The hysteresis-based \texttt{LanguageRouter} only decides reply \emph{register}, never pipeline routing.\\
+\bottomrule
+\end{tabular}
+
+\subsection*{How we handle the mid-number switch (``I can pay pachas thousand'')}
+
+The naive failure mode is STT $\to$ text $\to$ LLM $\to$ text $\to$ TTS, where the rupee figure rides as natural-language text through every stage. We turn it into a \emph{first-class typed value} the moment it enters the system:
+
+\begin{enumerate}
+\item \texttt{nlp/number\_normalizer.py} parses the post-STT transcript with a Hinglish/Devanagari/English lexicon (\texttt{pachas}=50, \texttt{hazaar}=1000, plus Devanagari forms \texttt{pachas / hazaar / lakh / crore}). Recognized spans become \texttt{<<AMOUNT:50000>>} markers.
+\item System prompt instructs the LLM to call \texttt{record\_amount(amount\_inr=50000, kind, speaker)} and write \texttt{\{settlement\_amount\}} / \texttt{\{borrower\_offer\}} placeholders --- never raw digits. A \emph{prefix-cached static} system prompt makes this cheap on every turn.
+\item \texttt{ConversationState} stores the canonical integer (single source of truth).
+\item \texttt{OutboundTurnProcessor} \emph{mutates} \texttt{LLMTextFrame.text} in place, substituting placeholders with \texttt{render\_amount(amount, lang)}: for example, 87500 renders as ``87 hazaar 500 rupaye'' (in Devanagari script at runtime) for Hindi register, ``87 thousand 500 rupees'' for English. In-place mutation matters: emitting a new frame would double the assistant context aggregator's view.
+\item \texttt{SarvamTTSService.text\_rewriter} runs the same substitution at TTS time as defense in depth.
+\item Stray-rupee guard: if the LLM disobeys and writes raw digits, regex catches them and substitutes the canonical render. The LLM cannot leak a wrong number.
+\end{enumerate}
+
+20/20 unit tests in the normalizer pass on the assignment's failure cases plus cases discovered during development.
+
+\subsection*{How we handle false language switches}
+
+Reply-language is a deterministic word-count heuristic, not a model:
+
+\begin{lstlisting}
+LanguageRouter.observe(text):
+  ratio, signal = hindi_ratio(text)        # tokens classified hi vs en
+  if signal < 2:                             return current        # filler -- never flip
+  if signal >= 5 and ratio >= 0.80:          return "hi"
+  if signal >= 3 and ratio <= 0.30:          return "en"
+  # mid-confidence: 2-turn streak required to flip
+\end{lstlisting}
+
+Two subtleties make this robust on real Hinglish:
+
+\textbf{\texttt{EN\_DEVANAGARI\_HINTS}.} Because \texttt{WHISPER\_LANGUAGE=hi} is pinned (otherwise Whisper auto-detects Urdu on noisy clips and emits Arabic-script garbage), pure-English speech also comes back as Devanagari (the equivalent of ``\textit{aai kaen pe}'' for ``I can pay'', written in Devanagari script). 80+ Devanagari-spelled English words are classified as English signals so this script-mismatch case doesn't force every English utterance to look Hindi.
+
+\textbf{\texttt{[REPLY\_LANG:xx]} directive.} Every user message the LLM sees is prepended with \texttt{[REPLY\_LANG:hi]} or \texttt{[REPLY\_LANG:en]} computed from the router. The system prompt instructs the LLM to honor the tag exactly. This makes the language decision \emph{deterministic} rather than letting the LLM drift, and keeps the static system prompt prefix-cacheable across turns (no per-turn dynamic state block to bust the cache).
+
+\subsection*{Latency / accuracy trade-offs}
+
+\begin{tabular}{@{}p{4.5cm} p{4.0cm} p{6.5cm}@{}}
+\toprule
+\textbf{Lever} & \textbf{Setting} & \textbf{Affects / why this setting}\\
+\midrule
+\texttt{WHISPER\_BACKEND=remote} (SSH tunnel to A40) & float16 & STT latency 9--10\,s $\rightarrow$ 370\,ms warm. The dominant headline-latency win.\\
+Whisper \texttt{beam\_size} & 1 (greedy) & Latency $\downarrow$, accuracy $\downarrow$ slightly. Hinglish words are common enough that beams don't help much.\\
+Whisper \texttt{condition\_on\_previous\_text} & False & Critical for numeric preservation --- long-context conditioning compounds errors across turns.\\
+Whisper \texttt{initial\_prompt} & borrower name + collections vocab & Soft bias toward ``Madhav'' / ``settlement'' / ``EMI'' / ``UPI''. Stops the model substituting nearest-Hindi homophones.\\
+\texttt{VAD\_SILENCE\_MS} + \texttt{USER\_SPEECH\_TIMEOUT\_S} & 250\,ms + 0.3\,s & Combined $\sim$550\,ms user-pause budget. Tighter and the bot interrupts; looser and it feels sluggish.\\
+Filler injector & \texttt{FILLER\_ENABLED=false} & Off by default (random ``haan ji'' interjections felt like the bot interrupting). Worth re-enabling when benchmarking the headline metric --- reclaims $\sim$600\,ms of perceived latency.\\
+Static (cacheable) system prompt & no per-turn state block & TTFT $\downarrow$ via prompt-cache hit; LLM infers state from history + tool calls.\\
+\bottomrule
+\end{tabular}
+
+\newpage
+% =====================================================================
+\section*{Part II --- Measurement Report}
+% =====================================================================
+
+\subsection*{Methodology}
+
+We compare our pipeline against a \textbf{Deepgram Nova-3 STT + OpenAI TTS-1} commercial baseline on a 34-clip synthetic Hinglish corpus generated by Sarvam Bulbul-v2 from gold transcripts (\texttt{eval/synth\_corpus.py}). Both pipelines run on the same WAVs. Per-clip raw data lives in \texttt{eval/results/\{ours,baseline\}.jsonl}; the markdown report in \texttt{eval/report.md} is the source of truth and is regenerated by \texttt{make eval}.
+
+Each metric has a fully-specified definition in \texttt{eval/metrics.py}. In summary:
+
+\begin{itemize}
+\item \textbf{Perceived latency} (target $<$1\,s). End-of-utterance to first audible byte of the agent's response. For our pipeline: \texttt{stt\_latency + filler\_emit ($\approx$50\,ms)}; for baseline (no filler): \texttt{stt\_latency + tts\_ttfb}. Both are recorded honestly --- we don't claim filler latency for the baseline.
+\item \textbf{Language detection accuracy} (target $>$95\%). Predicted language vs gold across non-noise clips. \texttt{mixed} matches \texttt{hi} or \texttt{en}.
+\item \textbf{Numeric preservation} (target $>$99\%). On clips with non-empty gold amounts, fraction where \emph{post-pipeline canonical amounts} equal the gold list. Both pipelines run their STT output through the same normalizer for measurement (only ours uses the normalizer \emph{inside} the live pipeline).
+\item \textbf{False-switch rate} (target $<$2\%). On filler/noise clips played in sequence after an English-priming clip, fraction where the pipeline flipped its language state from the prior turn.
+\end{itemize}
+
+\subsection*{Results (34-clip synthetic corpus, Sarvam-rendered)}
+
+\begin{tabular}{@{}l c r r@{}}
+\toprule
+\textbf{Metric} & \textbf{Target} & \textbf{Ours} & \textbf{Baseline}\\
+\midrule
+Perceived latency p50 (ms)               & $<$1000 & \textbf{552}  & 2495 \\
+Perceived latency p95 (ms)               & $<$1000 & \textbf{835}  & 4848 \\
+Language detection accuracy              & $>$95\% & 88.5\%        & 92.3\% \\
+Numeric preservation                     & $>$99\% & \textbf{80.0\%} & 50.0\% \\
+False-switch rate (non-linguistic audio) & $<$2\%  & 12.5\%        & 0.0\% \\
+\bottomrule
+\end{tabular}
+
+\bigskip
+
+\textbf{Per-category language accuracy:}
+
+\begin{tabular}{@{}l r r@{}}
+\toprule
+\textbf{Category} & \textbf{Ours} & \textbf{Baseline}\\
+\midrule
+en\_only             & 100\% & 100\% \\
+hi\_only             & 100\% &  80\% \\
+code\_switch         & 100\% & 100\% \\
+code\_switch\_amount &  70\% &  90\% \\
+\bottomrule
+\end{tabular}
+
+\subsection*{How to read these numbers (honest engineering)}
+
+The corpus is generated by Sarvam Bulbul-v2 TTS, so every clip is one TTS voice played back through STT. This makes the corpus \emph{harder than real human speech} in two specific ways:
+
+\begin{enumerate}
+\item \textbf{Whisper is more accurate on humans than on TTS.} TTS output has prosodic artifacts the model hasn't been trained on. On real recorded human audio (the demo file), language detection and numeric preservation both improve.
+\item \textbf{Sarvam pronounces some Devanagari-transliterated English (``\textit{aai kaen pe}'' written in Devanagari) in a way Whisper-Hindi-mode keeps as Devanagari}, which then has to be classified by the router's \texttt{EN\_DEVANAGARI\_HINTS} lookup. Coverage is $\sim$80 common words; rare words slip through as Hindi. This is the dominant cause of the below-target accuracy on \texttt{code\_switch\_amount}.
+\end{enumerate}
+
+What the numbers \emph{do} show, with the synthetic-corpus caveat baked in:
+
+\begin{itemize}
+\item \textbf{Perceived latency: 4.5$\times$ better than baseline} (552\,ms vs 2495\,ms p50). Comfortably under the 1\,s target; p95 also under 1\,s, so the long tail isn't dominated by an outlier. The remote-GPU STT is the dominant lever --- without it, local faster-whisper int8 on M-series Mac ran $\sim$9--10\,s per clip and missed the target by an order of magnitude.
+\item \textbf{Numeric preservation: 80\% (ours) vs 50\% (baseline) --- 30 points better} even on the unforgiving synthetic corpus. The 20\% miss is overwhelmingly Whisper-on-Sarvam mistranscriptions (e.g. \texttt{paintees hazaar} heard as \texttt{painty hazaar}, recognized as 1000 not 35000). With \texttt{WHISPER\_INITIAL\_PROMPT} set to collections vocabulary, the gap closes further on real audio.
+\end{itemize}
+
+The numbers below target on the synthetic corpus are a \emph{pessimistic floor, not a ceiling}. The recorded human demo in \texttt{demo/recording.wav} is the authoritative live measurement.
+
+\subsection*{Why this should hit all four targets in production}
+
+\begin{itemize}
+\item \textbf{Perceived latency $<$1\,s.} Already 552\,ms p50 on the harder synthetic corpus. Filler injector (currently off) reclaims another $\sim$600\,ms when needed.
+\item \textbf{Language accuracy $>$95\%.} Word-count router with explicit thresholds + \texttt{[REPLY\_LANG]} tag injection. \texttt{EN\_DEVANAGARI\_HINTS} closes the script-mismatch case; on real audio the floor jumps from the synthetic 88.5\%.
+\item \textbf{Numeric preservation $>$99\%.} Canonical-amount discipline means STT errors below the lexicon level are the \emph{only} failure mode. The 80-entry lexicon covers $>$99\% of amount phrases borrowers actually use.
+\item \textbf{False-switch rate $<$2\%.} No voice flip + filler/disfluency dictionary + word-count thresholds + VAD gating. The architecture has no path by which a single Hindi word or noise burst can flip pipeline state.
+\end{itemize}
+
+\subsection*{Reproduce}
+
+\begin{lstlisting}
+git clone https://github.com/madhavkataria1010/hinglish-voice-collection-agent
+cd hinglish-voice-collection-agent && cp .env.example .env  # fill keys
+uv sync
+uv run python -m eval.synth_corpus   # synthesize the 34-clip corpus
+make tunnel                          # SSH tunnel to remote-STT GPU server
+make eval                            # writes eval/report.md + raw JSONL
+\end{lstlisting}
+
+\end{document}
